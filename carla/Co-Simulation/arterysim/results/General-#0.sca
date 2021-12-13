@@ -1,0 +1,25 @@
+version 2
+run General-0-20211210-19:10:00-6529
+attr configname General
+attr datetime 20211210-19:10:00
+attr experiment General
+attr inifile sumo-omnetpp-med.ini
+attr iterationvars ""
+attr iterationvarsf ""
+attr measurement ""
+attr network artery.inet.World
+attr processid 6529
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+param *.traci.core.version -1
+param *.traci.launcher.hostname "\"127.0.0.1\""
+param *.traci.launcher.port 8813
+param *.traci.launcher.sumocfg "\"/scenario/carla/maps/Town01.sumocfg\""
+param *.node[*].middleware.updateInterval 0.01s
+param *.node[*].middleware.datetime "\"2013-06-01 12:35:00\""
+param *.node[*].middleware.services "xmldoc(\"services.xml\")"
+
+
