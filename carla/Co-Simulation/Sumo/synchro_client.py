@@ -8,7 +8,6 @@
 """
 Script to integrate CARLA and SUMO simulations
 """
-
 # ==================================================================================================
 # -- imports ---------------------------------------------------------------------------------------
 # ==================================================================================================
@@ -18,6 +17,9 @@ import logging
 import time
 import carla
 import pandas as pd
+import numpy as np
+import errno
+
 # ==================================================================================================
 # -- find carla module -----------------------------------------------------------------------------
 # ==================================================================================================
@@ -25,7 +27,7 @@ import pandas as pd
 import glob
 import os
 import sys
-from numpy import  random
+from numpy import  random, sqrt
 import socket
 import select
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
@@ -51,6 +53,8 @@ else:
 # ==================================================================================================
 # -- sumo integration imports ----------------------------------------------------------------------
 # ==================================================================================================
+import sumolib
+net = sumolib.net.readNet('/home/med/carla/Co-Simulation/Sumo/examples/net/Town04.net.xml')
 
 from sumo_integration.bridge_helper import BridgeHelper  # pylint: disable=wrong-import-position
 from sumo_integration.carla_simulation import CarlaSimulation  # pylint: disable=wrong-import-position
@@ -62,36 +66,85 @@ from run_synchronization import SimulationSynchronization
 # -- synchronization_loop --------------------------------------------------------------------------
 # ==================================================================================================
 cams=[]
+previous_messages_per_host={}
+current_messages_per_host={}
+on_going_message_recv={"state":False}
+log_dump=[]
+def ssc(current_cam,previous_cam,threshold): # Simple Speed Check (SSC)
+    estimated_spd = sqrt((current_cam['pos_x']- previous_cam['pos_x'])**2+(current_cam['pos_y']- previous_cam['pos_y'])**2)/(int(current_cam['Generation Delta Time'])- int(previous_cam['Generation Delta Time']))
+    return abs(np.double(current_cam['Speed [Confidence]'].split('[')[0])-estimated_spd)>threshold
+
+def check_cam(cam):
+    previous_message = previous_messages_per_host.get(cam['Station ID'])
+    if not previous_message :
+        if not current_messages_per_host.get(cam['Station ID']):
+            current_messages_per_host[cam['Station ID']]= cam
+        return True
+    return ssc(cam,previous_message,3)
+
 def camToDict(cam):
     full_split=[x.split(':') for x in cam.split('\n')]
     return {k:v for k,v in full_split[:-1]}
 
+def get_ongoing_recv( conn ):
+    if  on_going_message_recv['state'] :
+        data = conn.recv(on_going_message_recv['full_message_size']-len(on_going_message_recv['fragment']))
+        on_going_message_recv['fragment']=on_going_message_recv['fragment']+data
+        if len(on_going_message_recv['fragment'])!= on_going_message_recv['full_message_size']:
+            on_going_message_recv['state']=True
+        else:
+            on_going_message_recv['state']=False
+    return on_going_message_recv['state']
+
+
+def set_ongoing_recv( data,size ):
+    if len(data)!= size:
+        on_going_message_recv['state']=True
+        on_going_message_recv['fragment']=data
+        on_going_message_recv['full_message_size']=size
+    return on_going_message_recv['state']
+
+
 def recieve_cam_messages(s,conn,addr):
-
-            # print('Connected by', addr)
-            while True:
-                data = None
-                try :
-                    # receiver data 
-                    data = conn.recv(6)
-                    if len(data)<=0:
-                        break
-                    next_cam_size = int(data.decode('utf-8'))
-                    data = conn.recv(next_cam_size)
-                    receiver_data = camToDict(data.decode('utf-8'))
-                    # cam data
-                    data = conn.recv(6)
-                    if len(data)<=0:
-                        break
-                    next_cam_size = int(data.decode('utf-8'))
-                    data = conn.recv(next_cam_size)
-                    cams.append({**receiver_data, **camToDict(data.decode('utf-8'))})
-                except Exception as e :
+    global current_messages_per_host
+    previous_messages_per_host.update(current_messages_per_host)
+    current_messages_per_host={}
+    # print('Connected by', addr)
+    while True:
+        data = None
+        try :
+            if on_going_message_recv['state']:
+                if  get_ongoing_recv( conn ):
                     break
-                if not data:
-                    print('not data')
+                else:
+                    data = on_going_message_recv['fragment']
+                    if on_going_message_recv['full_message_size'] ==6 :
+                        next_cam_size = int(data.decode('utf-8'))
+                        data = conn.recv(next_cam_size)
+                        if set_ongoing_recv(data,next_cam_size):
+                            continue
+            else :
+                data = conn.recv(6)
+                if len(data)<=0:
                     break
-
+                if set_ongoing_recv(data,6):
+                    continue
+                next_cam_size = int(data.decode('utf-8'))
+                data = conn.recv(next_cam_size)
+                if set_ongoing_recv(data,next_cam_size):
+                    continue
+        except IOError as e:
+            if e.errno != errno.EWOULDBLOCK: 
+                print(e)
+            break
+        full_cam = camToDict(data.decode('utf-8'))
+        x,y= net.convertLonLat2XY(full_cam['Longitude'], full_cam['Latitude'])
+        full_cam['pos_x']=x
+        full_cam['pos_y']=y
+        # if not check_cam(full_cam): 
+        #     print(full_cam, " is a false meessage")
+        full_cam['ssc']=check_cam(full_cam)
+        cams.append(full_cam)
 
 
 def color_agents(world,sumo2carla_ids,victimes,attackers):
@@ -178,8 +231,8 @@ def attacker4(world,sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attacke
                     actor.set_simulate_physics(enabled=False)  
                     ghosts.append(actor.id)
                     actor.apply_control(controlght)
-                    print(new_location.location)
-                    print(world.get_map().transform_to_geolocation(new_location.location))
+                    # print(new_location.location)
+                    # print(world.get_map().transform_to_geolocation(new_location.location))
             debug.draw_box(carla.BoundingBox(new_location.location+carla.Vector3D(0,0,15) ,carla.Vector3D(1,0.5,1)),new_location.rotation, 3, carla.Color(75,0,130),0.11)
 
     return ghosts
@@ -375,10 +428,7 @@ def synchronization_loop(args):
     victimes=['8']
     attackers=['56','21','1']
     conn = None
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    # s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
     s.bind((HOST, PORT))
     s.setblocking(0)
     s.listen(5)
@@ -387,32 +437,13 @@ def synchronization_loop(args):
         while True:
 
             start = time.time()
-            # print(" before tick")
-
             synchronization.tick()
-            # print("synchronization.tick()")
-            # print("synchronization.sumo2carla_ids",synchronization.sumo2carla_ids)
-            # print("synchronization.carla2sumo_ids",synchronization.carla2sumo_ids)
-            # print("synchronization.sumo....",synchronization.sumo.destroyed_actors,synchronization.sumo.spawned_actors)
-            # print("synchronization.carla....",synchronization.carla.destroyed_actors,synchronization.carla.spawned_actors)
-            # print(" after tick")
-
-            # if len(synchronization.sumo2carla_ids.keys()) >0 and not detroyed_one_sumo :
-            #     synchronization.sumo.destroy_actor(list(synchronization.sumo2carla_ids.keys())[0])
-            #     synchronization.sumo.unsubscribe(list(synchronization.sumo2carla_ids.keys())[0])
-            #     detroyed_one_sumo=True
             color_agents(world,synchronization.sumo2carla_ids,victimes,attackers)
             if ghost_move_delta_time <= 0:
                 ghosts= attacker4(world,synchronization.sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attackers,synchronization)
                 ghost_move_delta_time=10
             else:
                 ghost_move_delta_time=ghost_move_delta_time-1 
-
-
-            # if ghosts != []:
-            #         print(ghosts)
-            #         print([synchronization.carla2sumo_ids[x]  if x in synchronization.carla2sumo_ids.keys() else "not yet synchonized" for x in ghosts])
-
 
             readable, writable, errored = select.select([s], [], [],0.01)
 
@@ -439,7 +470,8 @@ def synchronization_loop(args):
 
     finally:
         logging.info('Cleaning synchronization')
-        pd.DataFrame(cams).to_csv('cams.csv')   
+        pd.DataFrame(cams).to_csv('cams.csv') 
+
 
         synchronization.close()
 

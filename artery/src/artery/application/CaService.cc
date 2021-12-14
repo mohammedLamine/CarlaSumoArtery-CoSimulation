@@ -150,16 +150,6 @@ int sendSocketCamToPython(int port,const vanetza::asn1::Cam* cam,const VehicleDa
 	ss << "receiver_long:" << mVehicleDataProvider->longitude().value() << "\n";
 	ss << "receiver_lat:" << mVehicleDataProvider->latitude().value() << "\n";
 	ss << "receiver_speed:" << mVehicleDataProvider->speed().value() << "\n";
-	std::string myreceiverString = ss.str();
-
-	char receivernstr[8]; 
-	int receiver_n= myreceiverString.length();
-	snprintf(receivernstr, 7,"%06d", receiver_n);
-	send(mypythonsocket , receivernstr , 6 , 0 );
-    send(mypythonsocket , myreceiverString.c_str() , receiver_n , 0 );
-
-	ss.str(std::string());
-
 
 	vanetza::facilities::print_indented(ss,*cam,"",0);
     std::string myString = ss.str();
@@ -186,6 +176,7 @@ void CaService::indicate(const vanetza::btp::DataIndication& ind, std::unique_pt
 		CaObject obj = visitor.shared_wrapper;
 
 		sendSocketCamToPython(SocketPORT,cam,mVehicleDataProvider,getFacilities().get_const<traci::VehicleController>().getVehicleId());
+
 		emit(scSignalCamReceived, &obj);
 		mLocalDynamicMap->updateAwareness(obj);
 	}
