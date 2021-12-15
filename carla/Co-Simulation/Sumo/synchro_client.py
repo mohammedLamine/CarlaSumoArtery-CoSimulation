@@ -70,8 +70,13 @@ previous_messages_per_host={}
 current_messages_per_host={}
 on_going_message_recv={"state":False}
 log_dump=[]
+artery2sumo_ids={}
+
 def ssc(current_cam,previous_cam,threshold): # Simple Speed Check (SSC)
-    estimated_spd = sqrt((current_cam['pos_x']- previous_cam['pos_x'])**2+(current_cam['pos_y']- previous_cam['pos_y'])**2)/(int(current_cam['Generation Delta Time'])- int(previous_cam['Generation Delta Time']))
+    estimated_spd = sqrt((previous_cam['pos_x'] - current_cam['pos_x'])**2+( previous_cam['pos_y']-current_cam['pos_y'])**2)/((int(current_cam['Generation Delta Time'])- int(previous_cam['Generation Delta Time']))/100000)
+    current_cam['estimated_spd']=estimated_spd
+
+    current_cam['speed diff']=np.double(current_cam['Speed [Confidence]'].split('[')[0])-estimated_spd
     return abs(np.double(current_cam['Speed [Confidence]'].split('[')[0])-estimated_spd)>threshold
 
 def check_cam(cam):
@@ -80,12 +85,18 @@ def check_cam(cam):
         if not current_messages_per_host.get(cam['Station ID']):
             current_messages_per_host[cam['Station ID']]= cam
         return True
-    return ssc(cam,previous_message,3)
+    return ssc(cam,previous_message,1000)
 
 def camToDict(cam):
     full_split=[x.split(':') for x in cam.split('\n')]
-    return {k:v for k,v in full_split[:-1]}
+    full_cam= {k:v for k,v in full_split[:-1]}
+    full_cam['Station ID']= int(full_cam['Station ID'])
+    full_cam['receiver_artery_id']= int(full_cam['receiver_artery_id'])
+    full_cam['Message ID']= int(full_cam['Message ID'])
+    full_cam['Longitude']= np.double(full_cam['Longitude'])/10**7
+    full_cam['Latitude']= np.double(full_cam['Latitude'])/10**7
 
+    return full_cam
 def get_ongoing_recv( conn ):
     if  on_going_message_recv['state'] :
         data = conn.recv(on_going_message_recv['full_message_size']-len(on_going_message_recv['fragment']))
@@ -105,7 +116,7 @@ def set_ongoing_recv( data,size ):
     return on_going_message_recv['state']
 
 
-def recieve_cam_messages(s,conn,addr):
+def recieve_cam_messages(conn,detections):
     global current_messages_per_host
     previous_messages_per_host.update(current_messages_per_host)
     current_messages_per_host={}
@@ -136,46 +147,62 @@ def recieve_cam_messages(s,conn,addr):
         except IOError as e:
             if e.errno != errno.EWOULDBLOCK: 
                 print(e)
+                print(data)
             break
         full_cam = camToDict(data.decode('utf-8'))
+        if not full_cam['receiver_artery_id'] in artery2sumo_ids:
+            artery2sumo_ids[full_cam['receiver_artery_id']] = full_cam['receiver_sumo_id']
         x,y= net.convertLonLat2XY(full_cam['Longitude'], full_cam['Latitude'])
         full_cam['pos_x']=x
         full_cam['pos_y']=y
-        # if not check_cam(full_cam): 
-        #     print(full_cam, " is a false meessage")
+         
+        current_messages_per_host[full_cam['Station ID']]= full_cam
         full_cam['ssc']=check_cam(full_cam)
+        if full_cam['ssc']:
+            if full_cam['Station ID'] in artery2sumo_ids:
+                detections.add(artery2sumo_ids[full_cam['Station ID']])
         cams.append(full_cam)
+    return detections
 
-
-def color_agents(world,sumo2carla_ids,victimes,attackers):
+def color_agents(world,synchronization,victimes,attackers,detections,freq=0.5):
     debug = world.debug
-    attackers_carla_ids = [sumo2carla_ids.get(actor_id) for actor_id in attackers]
-    victimes_carla_ids = [sumo2carla_ids.get(actor_id) for actor_id in victimes]
-    for actor_id in attackers_carla_ids:
-        if actor_id:
-            actor=world.get_actor(actor_id)
-            debug.draw_box(carla.BoundingBox(actor.get_transform().location,carla.Vector3D(1,0.5,1)),actor.get_transform().rotation, 3, carla.Color(255,0,0),0.05)
-    
+    victimes_carla_ids = [synchronization.sumo2carla_ids.get(actor_id) for actor_id in victimes]
+    for actor_id,ghosts in attackers.items():
+        if synchronization.sumo2carla_ids.get(actor_id):
+            actor=world.get_actor(synchronization.sumo2carla_ids.get(actor_id))
+            debug.draw_box(carla.BoundingBox(actor.get_transform().location,carla.Vector3D(1,0.5,1)),actor.get_transform().rotation, 3, carla.Color(255,0,0),freq)
+            if len(ghosts)!=0:
+                actor=world.get_actor(ghosts[0])
+                debug.draw_box(carla.BoundingBox(actor.get_transform().location,carla.Vector3D(1,0.5,1)),actor.get_transform().rotation, 3, carla.Color(75,0,130),freq)
+
     for actor_id in victimes_carla_ids:
         if actor_id:
             actor=world.get_actor(actor_id)
-            debug.draw_box(carla.BoundingBox(actor.get_transform().location,carla.Vector3D(1,0.5,1)),actor.get_transform().rotation, 3, carla.Color(0,255,0),0.05)
+            debug.draw_box(carla.BoundingBox(actor.get_transform().location,carla.Vector3D(1,0.5,1)),actor.get_transform().rotation, 3, carla.Color(0,255,0),freq)
+    
+    for actor_id in detections:
+        if synchronization.sumo2carla_ids.get(actor_id):
+            actor=world.get_actor(synchronization.sumo2carla_ids.get(actor_id))
+            debug.draw_box(carla.BoundingBox(actor.get_transform().location+carla.Vector3D(0,0,5),carla.Vector3D(0.05,0.05,0.05)),actor.get_transform().rotation, 3, carla.Color(0,0,120),freq)
+        else :
+            ghost_carla_id =list(synchronization.carla2sumo_ids.keys())[list(synchronization.carla2sumo_ids.values()).index(actor_id)]
+            actor=world.get_actor(ghost_carla_id)
+            debug.draw_box(carla.BoundingBox(actor.get_transform().location+carla.Vector3D(0,0,5),carla.Vector3D(0.05,0.05,0.05)),actor.get_transform().rotation, 3, carla.Color(0,0,120),freq)
+    
+    # for actor_id in ghosts:
+    #     if actor_id:
+    #         actor=world.get_actor(actor_id)
+    #         debug.draw_box(carla.BoundingBox(actor.get_transform().location,carla.Vector3D(1,0.5,1)),actor.get_transform().rotation, 3, carla.Color(75,0,130),1)
+
+
 
 
 def attacker5(world,sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attackers,synchronization):
-    debug = world.debug
-    attackers_carla_ids = [sumo2carla_ids.get(actor_id) for actor_id in attackers]
-
-    for ghost_id in ghosts :
-        world.get_actor(ghost_id).destroy()
-    ghosts=[]
-
-    for actor_id in attackers_carla_ids:
-        if actor_id:
-            actor=world.get_actor(actor_id)
+    for actor_id,ghosts in attackers.items():
+        if sumo2carla_ids.get(actor_id):
+            actor=world.get_actor(sumo2carla_ids.get(actor_id))
             controlght = actor.get_control()
-
-
+            
             new_location= actor.get_transform()
             new_location.location += new_location.get_forward_vector()*distance_multiplier
             # if world.get_map().get_waypoint(new_location.location).road_id not in [33,779,775]:
@@ -183,20 +210,19 @@ def attacker5(world,sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attacke
             #print(world.get_map().get_waypoint(new_location.location).road_id)
             new_location = world.get_map().get_waypoint(new_location.location).transform
             new_location.location=new_location.location+carla.Vector3D(0,0,1)
+
             if len(ghosts)==0:
-                print("creating the ghost")
+                #print("creating the ghost")
                 #spawn_points = world.get_map().get_spawn_points()
-                actor = world.try_spawn_actor(vehicle_bp, new_location)
+                spawned_actor_id = synchronization.carla.spawn_actor(vehicle_bp, new_location)
+                actor=world.get_actor(spawned_actor_id)
                 if actor : 
                     actor.set_autopilot(True)
                     actor.set_simulate_physics(enabled=False)  
                     ghosts.append(actor.id)
                     actor.apply_control(controlght)
-                    # print(new_location.location)
-                    # print(world.get_map().transform_to_geolocation(new_location.location))
-            debug.draw_box(carla.BoundingBox(new_location.location+carla.Vector3D(0,0,15) ,carla.Vector3D(1,0.5,1)),new_location.rotation, 3, carla.Color(75,0,130),0.11)
-
-    return ghosts
+            else : 
+                synchronization.carla.synchronize_vehicle(ghosts[0],new_location)
 
 def attacker4(world,sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attackers,synchronization):
     debug = world.debug
@@ -206,7 +232,6 @@ def attacker4(world,sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attacke
             synchronization.sumo.unsubscribe(synchronization.carla2sumo_ids[ghost_id])
             synchronization.sumo.destroy_actor(synchronization.carla2sumo_ids.pop(ghost_id))
             synchronization.carla.destroy_actor(ghost_id)
-
         ghosts=[]
         return ghosts
     for actor_id in attackers_carla_ids:
@@ -233,176 +258,9 @@ def attacker4(world,sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attacke
                     actor.apply_control(controlght)
                     # print(new_location.location)
                     # print(world.get_map().transform_to_geolocation(new_location.location))
-            debug.draw_box(carla.BoundingBox(new_location.location+carla.Vector3D(0,0,15) ,carla.Vector3D(1,0.5,1)),new_location.rotation, 3, carla.Color(75,0,130),0.11)
+            # debug.draw_box(carla.BoundingBox(new_location.location ,carla.Vector3D(1,0.5,1)),new_location.rotation, 3, carla.Color(75,0,130),1)
 
     return ghosts
-
-def attacker3(world,ghost_move_delta_time,ghosts,distance_multiplier,vehicle_bp,old_location):
-    debug = world.debug
-    world_snapshot = world.get_snapshot()
-    for ghost_id in ghosts : 
-        world.get_actor(ghost_id).destroy()
-    ghosts=[]
-    for actor_snapshot in world_snapshot:
-        actual_actor = world.get_actor(actor_snapshot.id)
-        if actual_actor.id in ghosts :
-            continue
-
-        if actual_actor.type_id.startswith('vehicle.mercedes.coup') :
-            if not world.get_actor(actual_actor.id).is_alive:
-                print("Attacker Died !!!!") 
-
-            debug.draw_box(carla.BoundingBox(actor_snapshot.get_transform().location,carla.Vector3D(1,0.5,1)),actor_snapshot.get_transform().rotation, 3, carla.Color(255,0,0),0.11)
-            
-            
-            new_location= actor_snapshot.get_transform()
-            new_location.location += new_location.get_forward_vector()*distance_multiplier
-            if world.get_map().get_waypoint(new_location.location).road_id not in [33,779,775]:
-                continue
-            #print(world.get_map().get_waypoint(new_location.location).road_id)
-            new_location = world.get_map().get_waypoint(new_location.location).transform
-            new_location.location=new_location.location+carla.Vector3D(0,0,1)
-            if len(ghosts)==0:
-                #print("creating the ghost")
-                #spawn_points = world.get_map().get_spawn_points()
-                actor = world.try_spawn_actor(vehicle_bp, new_location)
-                if actor : 
-                    actor.set_autopilot(True)
-                    actor.set_simulate_physics(enabled=False)  
-                    ghosts.append(actor.id)
-                    controlght = world.get_actor(actor_snapshot.id).get_control()
-                    actor.apply_control(controlght)
-                    print(actual_actor.id )
-                    print(actual_actor.attributes )
-                    print(actual_actor.semantic_tags )
-            debug.draw_box(carla.BoundingBox(new_location.location+carla.Vector3D(0,0,15) ,carla.Vector3D(1,0.5,1)),actor_snapshot.get_transform().rotation, 3, carla.Color(255,255,0),0.11)
-            
-    # for ghost_id in ghosts :
-    #     if not world.get_actor(ghost_id).is_alive :
-    #         print('ghost died')
-    #         world.get_actor(ghost_id).destroy()
-    #         print(ghosts)
-    #         ghosts=[]
-    #         # actor = world.try_spawn_actor(vehicle_bp, new_location)
-    #         # if actor : 
-    #         #     print('new ghost created')
-    #         #     ghosts[0] = actor.id
-    #         #     actor.set_autopilot(True)
-    #         #     actor.set_simulate_physics(enabled=False)  
-    #     else :
-    #         actor = world.get_actor(ghost_id)
-            
-    #         actor.set_location(new_location.location)
-
-    #         ghost_move_delta_time =10
-    return ghost_move_delta_time,old_location,ghosts
-
-
-
-def attacker2(world,ghost_move_delta_time,ghosts,distance_multiplier,vehicle_bp,old_location):
-    debug = world.debug
-
-    world_snapshot = world.get_snapshot()
-
-    for actor_snapshot in world_snapshot:
-        
-        actual_actor = world.get_actor(actor_snapshot.id)
-        
-        if actual_actor.id in ghosts :
-            continue
-
-        if actual_actor.type_id.startswith('vehicle.mercedes.coup') :
-            if not world.get_actor(actual_actor.id).is_alive:
-                print("Attacker Died !!!!") 
-            if old_location == []:
-                old_location = actor_snapshot.get_transform().location
-                print("setting up the first ever location")
-            else :
-                debug.draw_box(carla.BoundingBox(actor_snapshot.get_transform().location,carla.Vector3D(1,0.5,1)),actor_snapshot.get_transform().rotation, 3, carla.Color(255,0,0),0.11)
-                
-                diff_location =  actor_snapshot.get_transform().location - old_location
-                
-                new_location= actor_snapshot.get_transform()
-                new_location.location += diff_location*distance_multiplier
-                new_location = world.get_map().get_waypoint(new_location.location).transform
-
-                if len(ghosts)==0:
-                    print("creating the ghost")
-                    spawn_points = world.get_map().get_spawn_points()
-                    actor = world.spawn_actor(vehicle_bp, new_location)
-                    if actor : 
-                        print(actor)
-                        actor.set_autopilot(True)  
-                        ghosts.append(actor.id)
-                debug.draw_box(carla.BoundingBox(new_location.location+carla.Vector3D(0,0,15) ,carla.Vector3D(1,0.5,1)),actor_snapshot.get_transform().rotation, 3, carla.Color(255,255,0),0.11)
-                old_location = actor_snapshot.get_transform().location
-                controlght = world.get_actor(actor_snapshot.id).get_control()
-
-    for ghost_id in ghosts :
-        if not world.get_actor(ghost_id).is_alive :
-            print('ghost died')
-            actor = world.spawn_actor(vehicle_bp, new_location)
-            if actor : 
-                ghosts[0] = actor.id
-                actor.set_autopilot(True)  
-
-        actor = world.get_actor(ghost_id)
-        
-        actor.set_location(new_location.location)
-        actor.apply_control(controlght)
-        ghost_move_delta_time =10
-    return ghost_move_delta_time,old_location,ghosts
-
-
-def attacker(world,ghost_move_delta_time,ghosts,distance_multiplier,vehicle_bp,old_location):
-    actor_list = world.get_actors()
-    debug = world.debug
-    world_snapshot = world.get_snapshot()
-    for actor_snapshot in world_snapshot:
-        
-        actual_actor = world.get_actor(actor_snapshot.id)
-        if actual_actor.id in ghosts :
-            continue
-
-        if actual_actor.type_id.startswith('vehicle.mercedes.coup') :
-            
-            if old_location == []:
-                old_location = actor_snapshot.get_transform().location
-                
-            else :
-                ghost_move_delta_time-=1
-                debug.draw_box(carla.BoundingBox(actor_snapshot.get_transform().location,carla.Vector3D(1,0.5,1)),actor_snapshot.get_transform().rotation, 3, carla.Color(255,0,0),0.11)
-                if ghost_move_delta_time <= 0:
-                    diff_location =  actor_snapshot.get_transform().location - old_location
-                    if diff_location.x+diff_location.y+diff_location.z == 0.0 :
-                        continue
-                    
-                    new_location= actor_snapshot.get_transform()
-                    new_location.location += diff_location*distance_multiplier+carla.Vector3D(0,0,0)
-                    if len(ghosts)==0:
-                        actor = world.try_spawn_actor(vehicle_bp, new_location)
-                        if actor : 
-                            actor.set_autopilot(True)  
-                            ghosts.append(actor.id)
-                    debug.draw_box(carla.BoundingBox(new_location.location ,carla.Vector3D(1,0.5,1)),actor_snapshot.get_transform().rotation, 3, carla.Color(255,255,0),0.11)
-                    old_location = actor_snapshot.get_transform().location
-                    controlght = world.get_actor(actor_snapshot.id).get_control()
-    for ghost_id in ghosts :
-        if not world.get_actor(ghost_id).is_alive :
-            actor = world.try_spawn_actor(vehicle_bp, new_location)
-            if actor : 
-                ghosts[0] = actor.id
-                actor.set_autopilot(True)  
-        if ghost_move_delta_time <= 0:
-
-            actor = world.get_actor(ghost_id)
-            
-            actor.set_location(new_location.location)
-            actor.apply_control(controlght)
-        else :
-            ghost_move_delta_time =10
-    return ghost_move_delta_time,old_location,ghosts
-
 
 def synchronization_loop(args):
     """
@@ -418,46 +276,42 @@ def synchronization_loop(args):
 
     distance_multiplier=150
     ghosts=[]
-    old_location = []
     world = carla_simulation.world
 
     blueprint_library = world.get_blueprint_library()
     vehicle_bp = random.choice(blueprint_library.filter('vehicle.audi.*'))
-    controlght=None
     ghost_move_delta_time= 10
     victimes=['8']
-    attackers=['56','21','1']
+    attackers={'56':[],'21':[],'1':[]}
     conn = None
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
     s.bind((HOST, PORT))
     s.setblocking(0)
     s.listen(5)
-    detroyed_one_sumo=False
     try:
         while True:
 
             start = time.time()
             synchronization.tick()
-            color_agents(world,synchronization.sumo2carla_ids,victimes,attackers)
             if ghost_move_delta_time <= 0:
-                ghosts= attacker4(world,synchronization.sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attackers,synchronization)
-                ghost_move_delta_time=10
+                ghosts= attacker5(world,synchronization.sumo2carla_ids,ghosts,distance_multiplier,vehicle_bp,attackers,synchronization)
+                ghost_move_delta_time=0
             else:
                 ghost_move_delta_time=ghost_move_delta_time-1 
 
-            readable, writable, errored = select.select([s], [], [],0.01)
+            readable, _, _ = select.select([s], [], [],0.01)
 
 
             if readable and not conn:
                 print("connect first time")
-                conn, addr = s.accept() 
+                conn, _ = s.accept() 
                 conn.setblocking(0)
 
+            detections = set([])
             if  not conn is None :
-                recieve_cam_messages(s,conn, addr)
+                detections= recieve_cam_messages(conn, detections)
 
-
-
+            color_agents(world,synchronization,victimes,attackers,detections,carla_simulation.step_length*5)
             end = time.time()
             elapsed = end - start
             if elapsed < args.step_length:
