@@ -15,10 +15,8 @@ Script to integrate CARLA and SUMO simulations
 import argparse
 import logging
 import time
-import carla
 import pandas as pd
 import numpy as np
-import errno
 
 # ==================================================================================================
 # -- find carla module -----------------------------------------------------------------------------
@@ -37,6 +35,8 @@ try:
 except IndexError:
     pass
 
+sys.path.append("../carla/Co-Simulation/Sumo")
+
 # ==================================================================================================
 # -- find traci module -----------------------------------------------------------------------------
 # ==================================================================================================
@@ -51,12 +51,11 @@ else:
 # ==================================================================================================
 import sumolib
 net = sumolib.net.readNet('/home/med/carla/Co-Simulation/Sumo/examples/net/Town04.net.xml')
-
+import sumo_integration
 from sumo_integration.bridge_helper import BridgeHelper  # pylint: disable=wrong-import-position
 from sumo_integration.carla_simulation import CarlaSimulation  # pylint: disable=wrong-import-position
 from sumo_integration.constants import INVALID_ACTOR_ID  # pylint: disable=wrong-import-position
 from sumo_integration.sumo_simulation import SumoSimulation  # pylint: disable=wrong-import-position
-import run_synchronization
 from run_synchronization import SimulationSynchronization  
 from carla_artery_connection import ArterySynchronization
 from attacker_module import GhostAheadAttacker
