@@ -15,8 +15,10 @@ Script to integrate CARLA and SUMO simulations
 import argparse
 import logging
 import time
+import carla
 import pandas as pd
 import numpy as np
+import errno
 
 # ==================================================================================================
 # -- find carla module -----------------------------------------------------------------------------
@@ -35,8 +37,6 @@ try:
 except IndexError:
     pass
 
-sys.path.append("../carla/Co-Simulation/Sumo")
-
 # ==================================================================================================
 # -- find traci module -----------------------------------------------------------------------------
 # ==================================================================================================
@@ -50,12 +50,15 @@ else:
 # -- sumo integration imports ----------------------------------------------------------------------
 # ==================================================================================================
 import sumolib
-net = sumolib.net.readNet('/home/med/carla/Co-Simulation/Sumo/examples/net/Town04.net.xml')
-import sumo_integration
+net = sumolib.net.readNet('./carla/Co-Simulation/Sumo/examples/net/Town04.net.xml')
+
+sys.path.append("./carla/Co-Simulation/Sumo")
+
 from sumo_integration.bridge_helper import BridgeHelper  # pylint: disable=wrong-import-position
 from sumo_integration.carla_simulation import CarlaSimulation  # pylint: disable=wrong-import-position
 from sumo_integration.constants import INVALID_ACTOR_ID  # pylint: disable=wrong-import-position
 from sumo_integration.sumo_simulation import SumoSimulation  # pylint: disable=wrong-import-position
+import run_synchronization
 from run_synchronization import SimulationSynchronization  
 from carla_artery_connection import ArterySynchronization
 from attacker_module import GhostAheadAttacker
@@ -96,35 +99,37 @@ def synchronization_loop(args):
         while True:
 
             start = time.time()
+            # synchronize carla with sumo
             synchronization.tick()
 
+            # Synchronize artery data with carla
+            artery_conn.checkAndConnectclient()
+
+            # perform all attacks
             for attacker in attackers:
                 attacker.perform_attack(synchronization,vehicle_bp)
 
-            artery_conn.checkAndConnectclient()
-
+            # apply all detection mechanisms
             detections = set([])
-
             if  artery_conn.is_connected() :
                 current_step_cams=artery_conn.recieve_cam_messages()
                 detections = glonal_detector.check(synchronization.artery2sumo_ids,current_step_cams)
                 cams.extend(current_step_cams)
 
-
+            # color agents accordingly
             carla_painter.color_agents(synchronization,victimes,attackers,detections)
+
             end = time.time()
             elapsed = end - start
             if elapsed < args.step_length:
                 time.sleep(args.step_length - elapsed)
-
-            
 
     except KeyboardInterrupt:
         logging.info('Cancelled by user.')
 
     finally:
         logging.info('Cleaning synchronization')
-        pd.DataFrame( cams).to_csv('cams.csv') 
+        pd.DataFrame(cams).to_csv('cams.csv') 
 
 
         synchronization.close()
@@ -138,8 +143,8 @@ def synchronization_loop(args):
         world.apply_settings(settings)
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description=__doc__)
-    argparser.add_argument('--sumo_cfg_file', type=str, help='sumo configuration file',default="/home/med/carla/Co-Simulation/Sumo/examples/Town04.sumocfg")
-    argparser.add_argument('--sumo_net_file', type=str, help='sumo network file',default="/home/med/carla/Co-Simulation/Sumo/examples/net/Town04.net.xml")
+    argparser.add_argument('--sumo_cfg_file', type=str, help='sumo configuration file',default="./carla/Co-Simulation/Sumo/examples/Town04.sumocfg")
+    argparser.add_argument('--sumo_net_file', type=str, help='sumo network file',default="./carla/Co-Simulation/Sumo/examples/net/Town04.net.xml")
 
     argparser.add_argument('--carla-host',
                            metavar='H',
