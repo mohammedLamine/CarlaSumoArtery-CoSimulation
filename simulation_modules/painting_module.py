@@ -6,6 +6,7 @@ Script to inject attacks in recieved artery messages in python
 # ==================================================================================================
 import carla
 
+from sumo_integration.bridge_helper import BridgeHelper  # pylint: disable=wrong-import-position
 
 
 class Painter(object):
@@ -24,6 +25,16 @@ class Painter(object):
         self.colorAttackersAndGhosts(coloring_brush,synchronization,attackers)
         self.colorVictims(coloring_brush,synchronization,victimes)
         self.colorDetections(coloring_brush,synchronization,detections)
+
+    def color_communication(self,synchronization,cam):
+        coloring_brush = synchronization.carla.world.debug
+        sender_carla_id = synchronization.sumo2carla_ids.get(cam['receiver_sumo_id'])
+        receiver_carla_id= synchronization.sumo2carla_ids.get(synchronization.artery2sumo_ids.get(cam['Station ID']))
+
+        if sender_carla_id and receiver_carla_id and cam.get('sender_pos_x') and cam.get('receiver_pos_x'):
+                coloring_brush.draw_arrow(
+                carla.Location(cam['sender_pos_x'],cam['sender_pos_y'],10),
+                carla.Location(cam['receiver_pos_x'],cam['receiver_pos_y'],10),thickness=0.2,life_time=self.freq,color=carla.Color(255,0,0))
 
 
     def colorAttackersAndGhosts(self,coloring_brush,synchronization,attackers):

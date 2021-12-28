@@ -21,17 +21,17 @@ class SSC(Detector):# Simple Speed Check (SSC)
         self.threshold=threshold
 
     def ssc_check(self,current_cam,previous_cam): 
-        estimated_spd = np.sqrt((previous_cam['pos_x'] - current_cam['pos_x'])**2+( previous_cam['pos_y']-current_cam['pos_y'])**2)/((current_cam['Generation Delta Time']- previous_cam['Generation Delta Time'])/100000)
+        estimated_spd = np.sqrt((previous_cam['sender_pos_x'] - current_cam['sender_pos_x'])**2+( previous_cam['sender_pos_y']-current_cam['sender_pos_y'])**2)/((current_cam['Generation Delta Time']- previous_cam['Generation Delta Time'])/100000)
         current_cam['estimated_spd']=estimated_spd
 
-        current_cam['speed diff']=current_cam['Speed']-estimated_spd
-        return current_cam['speed diff']>self.threshold
+        current_cam['speed_diff']=current_cam['Speed']-estimated_spd
+        return abs(current_cam['speed_diff'])>self.threshold
 
     def check_cam(self,cam):
-        previous_message = self.previous_messages_per_host.get(cam['Station ID'])
+        previous_message = self.previous_messages_per_host.get((cam['Station ID'],cam['receiver_artery_id']))
         if not previous_message :
-            if not self.current_messages_per_host.get(cam['Station ID']):
-                self.current_messages_per_host[cam['Station ID']]= cam
+            # if not self.current_messages_per_host.get((cam['Station ID'],cam['receiver_artery_id'])):
+            #     self.current_messages_per_host[(cam['Station ID'],cam['receiver_artery_id'])]= cam
             return False
         return self.ssc_check(cam,previous_message)
 
@@ -41,10 +41,11 @@ class SSC(Detector):# Simple Speed Check (SSC)
         for cam in current_step_cams:
             if not cam['receiver_artery_id'] in artery2sumo_ids:
                 artery2sumo_ids[cam['receiver_artery_id']] = cam['receiver_sumo_id']
-            x,y= self.net.convertLonLat2XY(cam['Longitude'], cam['Latitude'])
-            cam['pos_x']=x
-            cam['pos_y']=y
-            self.current_messages_per_host[cam['Station ID']]= cam
+            if not cam.get('sender_pos_x'):
+                x,y= self.net.convertLonLat2XY(cam['Longitude'], cam['Latitude'])
+                cam['sender_pos_x']=x
+                cam['sender_pos_y']=y
+            self.current_messages_per_host[(cam['Station ID'],cam['receiver_artery_id'])]= cam
             cam['ssc']=self.check_cam(cam)
             if cam['ssc']:
                 if cam['Station ID'] in artery2sumo_ids:

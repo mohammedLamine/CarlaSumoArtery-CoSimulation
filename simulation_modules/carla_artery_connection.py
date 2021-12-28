@@ -9,6 +9,9 @@ import numpy as np
 import errno
 import socket
 import select
+import carla
+from sumo_integration.bridge_helper import BridgeHelper  # pylint: disable=wrong-import-position
+
 HOST = '127.0.0.1'  
 PORT = 65432        
 
@@ -25,7 +28,6 @@ class ArterySynchronization(object):
 
     def checkAndConnectclient(self):
         if not self.is_connected():
-            print('checking readable')
             readable, _, _ = select.select([self.s], [], [],0.01)
             if readable:
                 print("connecting artery client")
@@ -34,8 +36,31 @@ class ArterySynchronization(object):
 
     def is_connected(self):
         return not (self.conn is None)
-                
-    def camToDict(self,cam):
+        
+    def getCarlaLocation(self,synchronization,cam ):
+        sender_carla_id = synchronization.sumo2carla_ids.get(cam['receiver_sumo_id'])
+        receiver_carla_id= synchronization.sumo2carla_ids.get(synchronization.artery2sumo_ids.get(cam['Station ID']))
+
+        if sender_carla_id and receiver_carla_id:
+            sender_carla = synchronization.carla.world.get_actor(sender_carla_id)
+            receiver_carla= synchronization.carla.world.get_actor(receiver_carla_id)
+            x,y = synchronization.net.convertLonLat2XY(cam['receiver_long'],cam['receiver_lat'])
+            extent    = carla.Vector3D(cam['Vehicle_Length'] / 200.0, cam['Vehicle_Width'] / 200.0, 0/ 2.0)
+            transform = carla.Transform(carla.Location(x, y, 0),
+                                    receiver_carla.get_transform().rotation)
+            receiver_carla_transform = BridgeHelper.get_carla_transform(transform, extent)
+            cam['receiver_pos_x']=receiver_carla_transform.location.x
+            cam['receiver_pos_y']=receiver_carla_transform.location.y
+
+            x,y = synchronization.net.convertLonLat2XY(cam['Longitude'],cam['Latitude'])
+            extent    = carla.Vector3D(cam['Vehicle_Length'] / 400.0, cam['Vehicle_Width'] / 400.0, 0/ 2.0)
+            transform = carla.Transform(carla.Location(x, y, 0),
+                                    receiver_carla.get_transform().rotation)
+            sender_carla_transform = BridgeHelper.get_carla_transform(transform, extent)
+            cam['sender_pos_x']=sender_carla_transform.location.x
+            cam['sender_pos_y']=sender_carla_transform.location.y
+
+    def camToDict(self,synchronization,cam):
         full_split=[x.split(':') for x in cam.split('\n')]
         full_cam= {k:v for k,v in full_split[:-1]}
 
@@ -84,7 +109,9 @@ class ArterySynchronization(object):
         full_cam['Vehicle_Length_Confidence']=float(full_cam['Vehicle Length [Confidence Indication]'].split('[')[1].split(']')[0])
         full_cam.pop('Vehicle Length [Confidence Indication]')
 
-        full_cam['Vehicle Width']=float(full_cam['Vehicle Width'])
+        full_cam['Vehicle_Width']=float(full_cam['Vehicle Width'])
+        full_cam.pop('Vehicle Width')
+
         # full_cam['Curvature [Confidence]']=str(full_cam['Curvature [Confidence]'])
         full_cam['Curvature']=float(full_cam['Curvature [Confidence]'].split('[')[0])
         full_cam['Curvature_Confidence']=float(full_cam['Curvature [Confidence]'].split('[')[1].split(']')[0])
@@ -105,7 +132,7 @@ class ArterySynchronization(object):
         full_cam.pop('Reference Position')
         full_cam.pop('Basic Container')
         full_cam.pop('ITS PDU Header')
-
+        self.getCarlaLocation(  synchronization,full_cam)
         return full_cam
 
     def get_ongoing_recv( self ):
@@ -127,7 +154,7 @@ class ArterySynchronization(object):
         return self.on_going_message_recv['state']
 
 
-    def recieve_cam_messages(self):
+    def recieve_cam_messages(self,synchronization):
         current_step_cams=[]
         while True:
             data = None
@@ -157,6 +184,6 @@ class ArterySynchronization(object):
                     print(e)
                     print(data)
                 break
-            full_cam = self.camToDict(data.decode('utf-8'))
+            full_cam = self.camToDict(synchronization,data.decode('utf-8'))
             current_step_cams.append(full_cam)
         return current_step_cams

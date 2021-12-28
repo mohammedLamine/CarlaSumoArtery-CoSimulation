@@ -88,19 +88,21 @@ def synchronization_loop(args):
 
     blueprint_library = world.get_blueprint_library()
     vehicle_bp = random.choice(blueprint_library.filter('vehicle.audi.*'))
-    victimes=['8']
+    victimes=[]
     attackers=[ GhostAheadAttacker('56'),
                 GhostAheadAttacker('21'),
                 GhostAheadAttacker('1')]
     artery_conn = ArterySynchronization()
     carla_painter = Painter(freq=carla_simulation.step_length*5)
-    glonal_detector = SSC(synchronization.net,250)
+    glonal_detector = SSC(synchronization.net,200)
     try:
         while True:
 
             start = time.time()
             # synchronize carla with sumo
             synchronization.tick()
+
+
 
             # Synchronize artery data with carla
             artery_conn.checkAndConnectclient()
@@ -112,11 +114,12 @@ def synchronization_loop(args):
             # apply all detection mechanisms
             detections = set([])
             if  artery_conn.is_connected() :
-                current_step_cams=artery_conn.recieve_cam_messages()
+                current_step_cams=artery_conn.recieve_cam_messages(synchronization)
                 detections = glonal_detector.check(synchronization.artery2sumo_ids,current_step_cams)
                 cams.extend(current_step_cams)
+                # [carla_painter.color_communication(synchronization,cam) for cam in current_step_cams]
 
-            # color agents accordingly
+            # # color agents accordingly
             carla_painter.color_agents(synchronization,victimes,attackers,detections)
 
             end = time.time()
