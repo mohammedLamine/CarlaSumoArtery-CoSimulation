@@ -3,6 +3,7 @@
 ## Download Requirements
 - CARLA v.0.9.11
 - Artery
+- Sumo
 
 ## Installation
 ### Pre-requisites
@@ -48,8 +49,12 @@
 If you use our work, please cite us!
 ``` Add bibtex ```
 ### Authors
-- ``` Author 1 ```
-- ``` Author 2 ```
-- ``` Author 3 ```
+- ``` Mohammed Lamine Bouchouia ```
+- ``` Jean-Philippe Monteuuis ```
+- ``` Houda Labiod ```
+- ``` Ons Jelassi ```
+- ``` Wafa Ben Jaballah ```
+- ``` Jonathan Petit ```
+
 ### Contact:
-A question? Send us an email: ``` Add an email ``` 
+A question? Send us an email: ``` mohammed.bouchouia@telecom-paris.fr ``` 
