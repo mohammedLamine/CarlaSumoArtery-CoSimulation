@@ -47,7 +47,14 @@
 ## Misc
 ### Reference
 If you use our work, please cite us!
-``` Add bibtex ```
+```
+@inproceedings{bouchouia2022simulator,
+  title={A simulator for cooperative and automated driving security},
+  author={Bouchouia, Mohammed and Monteuuis, Jean-Philippe and Labiod, Houda and Jaballah, Wafa Ben and Petit, Jonathan},
+  year={2022}
+}
+
+```
 ### Authors
 - ``` Mohammed Lamine Bouchouia ```
 - ``` Jean-Philippe Monteuuis ```
