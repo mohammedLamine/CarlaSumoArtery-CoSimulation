@@ -41,10 +41,6 @@ class SSC(Detector):# Simple Speed Check (SSC)
         for cam in current_step_cams:
             if not cam['receiver_artery_id'] in artery2sumo_ids:
                 artery2sumo_ids[cam['receiver_artery_id']] = cam['receiver_sumo_id']
-            if not cam.get('sender_pos_x'):
-                x,y= self.net.convertLonLat2XY(cam['Longitude'], cam['Latitude'])
-                cam['sender_pos_x']=x
-                cam['sender_pos_y']=y
             self.current_messages_per_host[(cam['Station ID'],cam['receiver_artery_id'])]= cam
             cam['ssc']=self.check_cam(cam)
             if cam['ssc']:

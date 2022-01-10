@@ -38,27 +38,23 @@ class ArterySynchronization(object):
         return not (self.conn is None)
         
     def getCarlaLocation(self,synchronization,cam ):
-        sender_carla_id = synchronization.sumo2carla_ids.get(cam['receiver_sumo_id'])
-        receiver_carla_id= synchronization.sumo2carla_ids.get(synchronization.artery2sumo_ids.get(cam['Station ID']))
 
-        if sender_carla_id and receiver_carla_id:
-            sender_carla = synchronization.carla.world.get_actor(sender_carla_id)
-            receiver_carla= synchronization.carla.world.get_actor(receiver_carla_id)
-            x,y = synchronization.net.convertLonLat2XY(cam['receiver_long'],cam['receiver_lat'])
-            extent    = carla.Vector3D(cam['Vehicle_Length'] / 200.0, cam['Vehicle_Width'] / 200.0, 0/ 2.0)
-            transform = carla.Transform(carla.Location(x, y, 0),
-                                    receiver_carla.get_transform().rotation)
-            receiver_carla_transform = BridgeHelper.get_carla_transform(transform, extent)
-            cam['receiver_pos_x']=receiver_carla_transform.location.x
-            cam['receiver_pos_y']=receiver_carla_transform.location.y
+        x,y = synchronization.net.convertLonLat2XY(cam['receiver_long'],cam['receiver_lat'])
+        extent    = carla.Vector3D(cam['Vehicle_Length'] / 200.0, cam['Vehicle_Width'] / 200.0, 0/ 2.0)
+        transform = carla.Transform(carla.Location(x, y, 0),
+                                carla.Rotation())
+        receiver_carla_transform = BridgeHelper.get_carla_transform(transform, extent)
+        cam['receiver_pos_x']=receiver_carla_transform.location.x
+        cam['receiver_pos_y']=receiver_carla_transform.location.y
 
-            x,y = synchronization.net.convertLonLat2XY(cam['Longitude'],cam['Latitude'])
-            extent    = carla.Vector3D(cam['Vehicle_Length'] / 400.0, cam['Vehicle_Width'] / 400.0, 0/ 2.0)
-            transform = carla.Transform(carla.Location(x, y, 0),
-                                    receiver_carla.get_transform().rotation)
-            sender_carla_transform = BridgeHelper.get_carla_transform(transform, extent)
-            cam['sender_pos_x']=sender_carla_transform.location.x
-            cam['sender_pos_y']=sender_carla_transform.location.y
+        x,y = synchronization.net.convertLonLat2XY(cam['Longitude'],cam['Latitude'])
+        extent    = carla.Vector3D(cam['Vehicle_Length'] / 400.0, cam['Vehicle_Width'] / 400.0, 0/ 2.0)
+        transform = carla.Transform(carla.Location(x, y, 0),
+                                carla.Rotation())
+        sender_carla_transform = BridgeHelper.get_carla_transform(transform, extent)
+        cam['sender_pos_x']=sender_carla_transform.location.x
+        cam['sender_pos_y']=sender_carla_transform.location.y
+
 
     def camToDict(self,synchronization,cam):
         full_split=[x.split(':') for x in cam.split('\n')]
@@ -132,6 +128,8 @@ class ArterySynchronization(object):
         full_cam.pop('Reference Position')
         full_cam.pop('Basic Container')
         full_cam.pop('ITS PDU Header')
+
+        # adding transformations
         self.getCarlaLocation(  synchronization,full_cam)
         return full_cam
 

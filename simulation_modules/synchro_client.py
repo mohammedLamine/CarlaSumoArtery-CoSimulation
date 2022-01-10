@@ -119,7 +119,7 @@ def synchronization_loop(args):
                 cams.extend(current_step_cams)
                 # [carla_painter.color_communication(synchronization,cam) for cam in current_step_cams]
 
-            # # color agents accordingly
+            # color agents accordingly
             carla_painter.color_agents(synchronization,victimes,attackers,detections)
 
             end = time.time()
