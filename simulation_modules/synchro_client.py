@@ -64,37 +64,50 @@ from carla_artery_connection import ArterySynchronization
 from attacker_module import GhostAheadAttacker
 from painting_module import Painter
 from detection_module import SSC
+from subprocess import Popen
+
 # ==================================================================================================
 # -- synchronization_loop --------------------------------------------------------------------------
 # ==================================================================================================
 cams=[]
 
+def run_artery():
+    p = Popen(['sleep 2 ;'+os.path.expanduser('~')+'/artery/build/run_artery.sh sumo-omnetpp-med.ini'], cwd='./carla/Co-Simulation/arterysim/', shell=True)
+    return p
 
-def synchronization_loop(args):
-    """
-    Entry point for sumo-carla co-simulation.
-    """
+
+def synchronization_init(args):
+    artery= run_artery()
     sumo_simulation = SumoSimulation(args.sumo_cfg_file,args.step_length , args.sumo_host,
-                                     args.sumo_port, args.sumo_gui, args.client_order)
+                                     args.sumo_port, args.sumo_gui, args.client_order,args.num_clients)
     carla_simulation = CarlaSimulation(args.carla_host, args.carla_port, args.step_length)
 
     synchronization = SimulationSynchronization(sumo_simulation, carla_simulation, args.tls_manager,
                                                 args.sync_vehicle_color, args.sync_vehicle_lights)
-
     synchronization.artery2sumo_ids={}
     synchronization.net = sumolib.net.readNet(args.sumo_net_file)
-
     world = carla_simulation.world
 
     blueprint_library = world.get_blueprint_library()
+
     vehicle_bp = random.choice(blueprint_library.filter('vehicle.audi.*'))
+
     victimes=[]
     attackers=[ GhostAheadAttacker('56'),
                 GhostAheadAttacker('21'),
                 GhostAheadAttacker('1')]
     artery_conn = ArterySynchronization()
     carla_painter = Painter(freq=carla_simulation.step_length*5)
-    glonal_detector = SSC(synchronization.net,200)
+    global_detector = SSC(synchronization.net,200)
+
+    return synchronization,artery_conn,global_detector,carla_painter,attackers,victimes,artery,vehicle_bp
+
+def synchronization_loop(args):
+    """
+    Entry point for sumo-carla co-simulation.
+    """    
+    synchronization,artery_conn,global_detector,carla_painter,attackers,victimes,artery,vehicle_bp =synchronization_init()
+    
     try:
         while True:
 
@@ -108,14 +121,14 @@ def synchronization_loop(args):
             artery_conn.checkAndConnectclient()
 
             # perform all attacks
-            for attacker in attackers:
-                attacker.perform_attack(synchronization,vehicle_bp)
+            # for attacker in attackers:
+            #     attacker.perform_attack(synchronization,vehicle_bp)
 
             # apply all detection mechanisms
             detections = set([])
             if  artery_conn.is_connected() :
                 current_step_cams=artery_conn.recieve_cam_messages(synchronization)
-                detections = glonal_detector.check(synchronization.artery2sumo_ids,current_step_cams)
+                detections = global_detector.check(synchronization.artery2sumo_ids,current_step_cams)
                 cams.extend(current_step_cams)
                 # [carla_painter.color_communication(synchronization,cam) for cam in current_step_cams]
 
@@ -133,17 +146,17 @@ def synchronization_loop(args):
     finally:
         logging.info('Cleaning synchronization')
         pd.DataFrame(cams).to_csv('cams.csv') 
-
+        artery.terminate()
 
         synchronization.close()
 
-        for actor in world.get_actors().filter('vehicle.*.*'):
+        for actor in synchronization.carla.world.get_actors().filter('vehicle.*.*'):
             actor.destroy()
 
-        settings = world.get_settings()
+        settings = synchronization.carla.world.get_settings()
         settings.synchronous_mode = False
         settings.fixed_delta_seconds = None     
-        world.apply_settings(settings)
+        synchronization.carla.world.apply_settings(settings)
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument('--sumo_cfg_file', type=str, help='sumo configuration file',default="./carla/Co-Simulation/Sumo/examples/Town04.sumocfg")
@@ -160,14 +173,14 @@ if __name__ == '__main__':
                            help='TCP port to listen to (default: 2000)')
     argparser.add_argument('--sumo-host',
                            metavar='H',
-                           default='127.0.0.1',
+                           default=None,
                            help='IP of the sumo host server (default: 127.0.0.1)')
     argparser.add_argument('--sumo-port',
                            metavar='P',
                            default=8813,
                            type=int,
                            help='TCP port to listen to (default: 8813)')
-    argparser.add_argument('--sumo-gui', action='store_true', help='run the gui version of sumo', default=True)
+    argparser.add_argument('--sumo-gui', action='store_true', help='run the gui version of sumo', default=False)
     argparser.add_argument('--step-length',
                            default=0.05,
                            type=float,
@@ -177,6 +190,10 @@ if __name__ == '__main__':
                            default=6,
                            type=int,
                            help='client order number for the co-simulation TraCI connection (default: 1)')
+    argparser.add_argument('--num-clients',
+                           default=1,
+                           type=int,
+                           help='Number of connected clients on sumo server (default: 1)')
     argparser.add_argument('--sync-vehicle-lights',
                            action='store_true',
                            help='synchronize vehicle lights state (default: False)')
