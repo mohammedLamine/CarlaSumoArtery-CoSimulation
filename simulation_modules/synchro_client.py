@@ -19,6 +19,7 @@ import carla
 import pandas as pd
 import numpy as np
 import errno
+import subprocess, signal
 
 # ==================================================================================================
 # -- find carla module -----------------------------------------------------------------------------
@@ -60,103 +61,122 @@ from sumo_integration.constants import INVALID_ACTOR_ID  # pylint: disable=wrong
 from sumo_integration.sumo_simulation import SumoSimulation  # pylint: disable=wrong-import-position
 import run_synchronization
 from run_synchronization import SimulationSynchronization  
-from carla_artery_connection import ArterySynchronization
-from attacker_module import GhostAheadAttacker
-from painting_module import Painter
-from detection_module import SSC
+
+sys.path.append('../CarlaSumoArtery-CoSimulation')
+
+from simulation_modules.carla_artery_connection import ArterySynchronization
+from simulation_modules.attacker_module import GhostAheadAttacker
+from simulation_modules.painting_module import Painter
+from simulation_modules.detection_module import SSC
 from subprocess import Popen
 
 # ==================================================================================================
 # -- synchronization_loop --------------------------------------------------------------------------
 # ==================================================================================================
-cams=[]
 
-def run_artery():
-    p = Popen(['sleep 2 ;'+os.path.expanduser('~')+'/artery/build/run_artery.sh sumo-omnetpp-med.ini'], cwd='./carla/Co-Simulation/arterysim/', shell=True)
-    return p
+class Simulation():
+    def __init__(self,args):
+        print("Creating a new simulation ")
+        self.args=args
+        self.cams=[]
+        self.artery= self.run_artery()
+        self.sumo_simulation = SumoSimulation(args.sumo_cfg_file,args.step_length , args.sumo_host,
+                                        args.sumo_port, args.sumo_gui, args.client_order,args.num_clients)
+        self.carla_simulation = CarlaSimulation(args.carla_host, args.carla_port, args.step_length)
 
+        self.synchronization = SimulationSynchronization(self.sumo_simulation, self.carla_simulation, args.tls_manager,
+                                                    args.sync_vehicle_color, args.sync_vehicle_lights)
+        self.synchronization.artery2sumo_ids={}
+        self.synchronization.net = sumolib.net.readNet(args.sumo_net_file)
+        self.world = self.carla_simulation.world
 
-def synchronization_init(args):
-    artery= run_artery()
-    sumo_simulation = SumoSimulation(args.sumo_cfg_file,args.step_length , args.sumo_host,
-                                     args.sumo_port, args.sumo_gui, args.client_order,args.num_clients)
-    carla_simulation = CarlaSimulation(args.carla_host, args.carla_port, args.step_length)
+        self.blueprint_library = self.world.get_blueprint_library()
 
-    synchronization = SimulationSynchronization(sumo_simulation, carla_simulation, args.tls_manager,
-                                                args.sync_vehicle_color, args.sync_vehicle_lights)
-    synchronization.artery2sumo_ids={}
-    synchronization.net = sumolib.net.readNet(args.sumo_net_file)
-    world = carla_simulation.world
+        self.vehicle_bp = random.choice(self.blueprint_library.filter('vehicle.audi.*'))
 
-    blueprint_library = world.get_blueprint_library()
+        self.victimes=[]
+        self.attackers=[ GhostAheadAttacker('56'),
+                    GhostAheadAttacker('21'),
+                    GhostAheadAttacker('1')]
+        self.artery_conn = ArterySynchronization()
+        self.carla_painter = Painter(freq=self.carla_simulation.step_length*5)
+        self.global_detector = SSC(self.synchronization.net,200)   
 
-    vehicle_bp = random.choice(blueprint_library.filter('vehicle.audi.*'))
+    def run_artery(self):
+        p = Popen(['sleep 2 ;'+os.path.expanduser('~')+'/artery/build/run_artery.sh sumo-omnetpp-med.ini'], cwd='./carla/Co-Simulation/arterysim/', shell=True)
+        return p
+        
+    def kill_artery(self):
+        p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
+        out, err = p.communicate()
+        for line in out.splitlines():
+            # print(line)
 
-    victimes=[]
-    attackers=[ GhostAheadAttacker('56'),
-                GhostAheadAttacker('21'),
-                GhostAheadAttacker('1')]
-    artery_conn = ArterySynchronization()
-    carla_painter = Painter(freq=carla_simulation.step_length*5)
-    global_detector = SSC(synchronization.net,200)
+            if b'opp_run_release' in line or b'artery' in line or b'omnetpp' in line:
+                print(line)
+                pid = int(line.split(None, 1)[0])
+                os.kill(pid, signal.SIGKILL)
 
-    return synchronization,artery_conn,global_detector,carla_painter,attackers,victimes,artery,vehicle_bp
+    def step(self):
+        start = time.time()
+        current_step_cams=[]
+        # synchronize carla with sumo
+        self.synchronization.tick()
 
-def synchronization_loop(args):
-    """
-    Entry point for sumo-carla co-simulation.
-    """    
-    synchronization,artery_conn,global_detector,carla_painter,attackers,victimes,artery,vehicle_bp =synchronization_init()
-    
-    try:
-        while True:
+        # Synchronize artery data with carla
+        self.artery_conn.checkAndConnectclient()
 
-            start = time.time()
-            # synchronize carla with sumo
-            synchronization.tick()
+        # perform all attacks
+        for attacker in self.attackers:
+            attacker.perform_attack(self.synchronization,self.vehicle_bp)
 
+        # apply all detection mechanisms
+        detections = set([])
+        if  self.artery_conn.is_connected() :
+            current_step_cams=self.artery_conn.recieve_cam_messages(self.synchronization)
+            detections = self.global_detector.check(self.synchronization.artery2sumo_ids,current_step_cams)
+            self.cams.extend(current_step_cams)
+            # [carla_painter.color_communication(synchronization,cam) for cam in current_step_cams]
 
+        # color agents accordingly
+        self.carla_painter.color_agents(self.synchronization,self.victimes,self.attackers,detections)
 
-            # Synchronize artery data with carla
-            artery_conn.checkAndConnectclient()
+        end = time.time()
+        elapsed = end - start
+        if elapsed < self.args.step_length:
+            time.sleep(self.args.step_length - elapsed)
+        return current_step_cams
+    def loop(self):
+        try:
+            while True:
+                self.step()
+        except KeyboardInterrupt:
+            logging.info('Cancelled by user.')
+        finally:
+            self.close()
 
-            # perform all attacks
-            # for attacker in attackers:
-            #     attacker.perform_attack(synchronization,vehicle_bp)
-
-            # apply all detection mechanisms
-            detections = set([])
-            if  artery_conn.is_connected() :
-                current_step_cams=artery_conn.recieve_cam_messages(synchronization)
-                detections = global_detector.check(synchronization.artery2sumo_ids,current_step_cams)
-                cams.extend(current_step_cams)
-                # [carla_painter.color_communication(synchronization,cam) for cam in current_step_cams]
-
-            # color agents accordingly
-            carla_painter.color_agents(synchronization,victimes,attackers,detections)
-
-            end = time.time()
-            elapsed = end - start
-            if elapsed < args.step_length:
-                time.sleep(args.step_length - elapsed)
-
-    except KeyboardInterrupt:
-        logging.info('Cancelled by user.')
-
-    finally:
+    def close(self):
+        print('Cleaning synchronization')
         logging.info('Cleaning synchronization')
-        pd.DataFrame(cams).to_csv('cams.csv') 
-        artery.terminate()
-
-        synchronization.close()
-
-        for actor in synchronization.carla.world.get_actors().filter('vehicle.*.*'):
+        pd.DataFrame(self.cams).to_csv('cams.csv') 
+        print('******************************* closing artery connection ********************************************')
+        self.artery_conn.shutdownAndClose()
+        print('******************************* closing artery process ********************************************')
+        self.kill_artery()
+        self.artery.terminate()
+        self.artery.kill()
+        print('******************************* closing synchronization ********************************************')
+        self.synchronization.close()
+        print('******************************* closing all actors ********************************************')
+        for actor in self.synchronization.carla.world.get_actors().filter('vehicle.*.*'):
             actor.destroy()
-
-        settings = synchronization.carla.world.get_settings()
+        print('******************************* reset world ********************************************')
+        settings = self.synchronization.carla.world.get_settings()
         settings.synchronous_mode = False
         settings.fixed_delta_seconds = None     
-        synchronization.carla.world.apply_settings(settings)
+        self.synchronization.carla.world.apply_settings(settings)
+
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument('--sumo_cfg_file', type=str, help='sumo configuration file',default="./carla/Co-Simulation/Sumo/examples/Town04.sumocfg")
@@ -220,4 +240,5 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
 
-    synchronization_loop(arguments)
+    simulation = Simulation(arguments)
+    simulation.loop()

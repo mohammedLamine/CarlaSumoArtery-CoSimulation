@@ -6,7 +6,7 @@ Script to integrate recieve artery messages in python for each simulation step
 # ==================================================================================================
 
 import numpy as np
-import errno
+import errno, time
 import socket
 import select
 import carla
@@ -20,7 +20,8 @@ class ArterySynchronization(object):
 
     def __init__(self):
         self.conn = None
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.s.bind((HOST, PORT))
         self.s.setblocking(0)
         self.s.listen(5)
@@ -178,10 +179,17 @@ class ArterySynchronization(object):
                     if self.set_ongoing_recv(data,next_cam_size):
                         continue
             except IOError as e:
+                if not data is None :
+                    if len(data) == 6:
+                        self.set_ongoing_recv(b'', int(data.decode('utf-8')))
                 if e.errno != errno.EWOULDBLOCK: 
-                    print(e)
+                    print("e.errno != errno.EWOULDBLOCK",e)
                     print(data)
                 break
             full_cam = self.camToDict(synchronization,data.decode('utf-8'))
             current_step_cams.append(full_cam)
         return current_step_cams
+
+    def shutdownAndClose(self):
+        self.s.shutdown(socket.SHUT_RDWR)
+        self.s.close()
