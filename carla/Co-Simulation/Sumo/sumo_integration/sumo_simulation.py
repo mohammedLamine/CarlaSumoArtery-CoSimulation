@@ -455,7 +455,8 @@ class SumoSimulation(object):
         """
         Destroys the given actor.
         """
-        traci.vehicle.remove(actor_id)
+        if actor_id in traci.vehicle.getIDList():
+            traci.vehicle.remove(actor_id)
 
     def get_traffic_light_state(self, landmark_id):
         """
