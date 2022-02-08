@@ -13,6 +13,9 @@
 - In Artery, add the folder named "artery/src"
 - In CARLA, add the folder named "carla/Co-Simulation"
 - Add the folder named "simulation_modules" next to the carla folder
+- It's highly recommended to configure Omnet++ to run in CMD mode by editing configure.user file in omnet and setting WITH_TKENV=no and WITH_QTENV=no then run:
+  ./configure; make cleanall; make MODE=release
+
 
 ### Testing
 - Run server mode carla: ```/Path/To/Carla/CarlaUE4.sh -ResX=600 -ResY=400 -carla-server```
