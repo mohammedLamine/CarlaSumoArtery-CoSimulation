@@ -1,33 +1,32 @@
 # CarlaSumoArtery-CoSimulation
 
 ## Download Requirements
-- CARLA v.0.9.11
+- CARLA v.0.9.[11-13]
 - Artery
 - Sumo
+- Desktop computer with a Monitor and installed Linux
 
 ## Installation
 ### Pre-requisites
 - Ensure CARLA and Artery and Sumo are installed and working
+- Set Omnetpp
+  - Edit the ```configure.user``` file: set the settings ```WITH_TKENV=no``` and ```WITH_QTENV=no``` 
+  - Run: ```./configure```; 
+  - ```./make cleanall```; 
+  - ```make MODE=release```;
 
 ### Add the following folders
 - In Artery, add the folder named "artery/src"
 - In CARLA, add the folder named "carla/Co-Simulation"
 - Add the folder named "simulation_modules" next to the carla folder
-- It's highly recommended to configure Omnet++ to run in CMD mode by editing configure.user file in omnet and setting WITH_TKENV=no and WITH_QTENV=no then run:
-  ./configure; make cleanall; make MODE=release
+
 
 
 ### Testing
-- Run server mode carla: ```/Path/To/Carla/CarlaUE4.sh -ResX=600 -ResY=400 -carla-server```
-- Run Sumo with two clients (cars) and using Town04 config: ```sumo-gui --remote-port 8813 --num-clients 2 -c Path/To/Carla/Co-Simulation/Sumo/examples/Town04.sumocfg  --step-length 0.05```
+- Run server mode carla: ```/Path/To/Carla/CarlaUE4.sh```
 - Connect as a Carla client:
   - ```cd to parent folder of carla and simulation_modules``` 
   - ```python3.7 synchro_client.py```
-
-- Connect an Artery client:
-  - ```cd Path/To/Carla/Co-Simulation/arterysim```
-  - ```Path/To/Artery/build/run_artery.sh sumo-omnetpp-med.ini``` 
-
 
 ## Adding new security features
 
