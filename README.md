@@ -17,6 +17,7 @@
 
 ### Add the following folders
 - In Artery, add the folder named "artery/src"
+  - as of march 2022 the file Core.cc is no longer needed if you use the last version of artery
 - In CARLA, add the folder named "carla/Co-Simulation"
 - Add the folder named "simulation_modules" next to the carla folder
 
