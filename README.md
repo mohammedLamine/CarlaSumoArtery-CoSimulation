@@ -8,12 +8,12 @@
 
 ## Installation
 ### Pre-requisites
-- Ensure CARLA and Artery and Sumo are installed and working
 - Set Omnetpp
-  - Edit the ```configure.user``` file: set the settings ```WITH_TKENV=no``` and ```WITH_QTENV=no``` 
-  - Run: ```./configure```; 
+  - Run: ```./configure WITH_TKENV=no WITH_QTENV=no``; 
   - ```./make cleanall```; 
   - ```make MODE=release```;
+- Ensure CARLA and Artery and Sumo are installed and working
+
 
 ### Add the following folders
 - In Artery, add the folder named "artery/src"
