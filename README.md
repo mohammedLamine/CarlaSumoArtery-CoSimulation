@@ -28,6 +28,7 @@
 - Connect as a Carla client:
   - ```cd to parent folder of carla and simulation_modules``` 
   - ```python3.7 synchro_client.py```
+    - Note: You may have face some permission denied error on an artery file named run_artery.sh. Ensure to allow executing files as a programm (Right click on the file > Properties > Permissions > Execute (check the box)
 
 ## Adding new security features
 
