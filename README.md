@@ -24,10 +24,15 @@
 
 
 ### Testing
-- Run server mode carla: ```/Path/To/Carla/CarlaUE4.sh```
-- Connect as a Carla client:
-  - ```cd to parent folder of carla and simulation_modules``` 
-  - ```python3.7 synchro_client.py```
+- Run server mode carla (in Terminal 1): 
+  - ```cd ~/CarlaSumoArtery-CoSimulation/carla```
+  - ```./CarlaUE4.sh```
+- Set the CARLA server on the correct map (in Terminal 1): 
+  - ``` cd PythonAPI/util ```
+  - ``` python3 config.py --map Town04 ```
+- Connect as a Carla client (in Terminal 2): 
+  - ```cd ~/CarlaSumoArtery-CoSimulation``` 
+  - ```python3.7 ./simulation_modules/synchro_client.py``
 
 ## Adding new security features
 
