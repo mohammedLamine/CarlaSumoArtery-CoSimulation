@@ -9,7 +9,7 @@
 ## Installation
 ### Pre-requisites
 - Set Omnetpp
-  - Run: ```./configure WITH_TKENV=no WITH_QTENV=no``; 
+  - Run: ```./configure WITH_TKENV=no WITH_QTENV=no```; 
   - ```./make cleanall```; 
   - ```make MODE=release```;
 - Ensure CARLA and Artery and Sumo are installed and working
