@@ -32,7 +32,7 @@
   - ``` python3 config.py --map Town04 ```
 - Connect as a Carla client (in Terminal 2): 
   - ```cd ~/CarlaSumoArtery-CoSimulation``` 
-  - ```python3.7 ./simulation_modules/synchro_client.py``
+  - ```python3.7 ./simulation_modules/synchro_client.py```
 
 ## Adding new security features
 
