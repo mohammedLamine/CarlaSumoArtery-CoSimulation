@@ -310,7 +310,7 @@ class SumoSimulation(object):
     """
     SumoSimulation is responsible for the management of the sumo simulation.
     """
-    def __init__(self, cfg_file, step_length, host=None, port=None, sumo_gui=False, client_order=1,num_clients=1):
+    def __init__(self, cfg_file, step_length, host=None, port=None, sumo_gui=False, client_order=2,num_clients=1):
         if sumo_gui is True:
             sumo_binary = sumolib.checkBinary('sumo-gui')
         else:
@@ -328,7 +328,6 @@ class SumoSimulation(object):
                 '--ignore-route-errors',
                 '--collision.action','none',
                 '--num-clients',str(num_clients),
-                '--log','./sumo_error/error_'+str(int(time.time()))+'.log'
             ], port=8813,label='default'+str(int(time.time())))
         else:
             logging.info('Connection to sumo server. Host: %s Port: %s', host, port)

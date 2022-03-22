@@ -244,9 +244,9 @@ if __name__ == '__main__':
                            help='set fixed delta seconds (default: 0.05s)')
     argparser.add_argument('--client-order',
                            metavar='TRACI_CLIENT_ORDER',
-                           default=6,
+                           default=5,
                            type=int,
-                           help='client order number for the co-simulation TraCI connection (default: 1)')
+                           help='client order number for the co-simulation TraCI connection (default: 2)')
     argparser.add_argument('--num-clients',
                            default=1,
                            type=int,

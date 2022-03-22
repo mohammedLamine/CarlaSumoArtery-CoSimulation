@@ -122,6 +122,7 @@ int sendSocketCamToPython(int port,const vanetza::asn1::Cam* cam,const VehicleDa
 		if ((mypythonsocket = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		{
 			printf("\n Socket creation error \n");
+			std::cout<<"\n Socket creation error \n";
 			return -1;
 		}
 		
@@ -132,12 +133,15 @@ int sendSocketCamToPython(int port,const vanetza::asn1::Cam* cam,const VehicleDa
 		if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0) 
 		{
 			printf("\nInvalid address/ Address not supported \n");
+
+			std::cout<<"\n Invalid address/ Address not supported \n";
 			return -1;
 		}
 	
 		if (connect(mypythonsocket, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
 		{
 			printf("\nConnection Failed \n");
+			std::cout<<"\n Connection Failed \n";
 			close(mypythonsocket);
 			mypythonsocket=0;
 			return -1;
@@ -174,7 +178,6 @@ void CaService::indicate(const vanetza::btp::DataIndication& ind, std::unique_pt
 	if (cam && cam->validate()) {
 
 		CaObject obj = visitor.shared_wrapper;
-
 		sendSocketCamToPython(SocketPORT,cam,mVehicleDataProvider,getFacilities().get_const<traci::VehicleController>().getVehicleId());
 
 		emit(scSignalCamReceived, &obj);

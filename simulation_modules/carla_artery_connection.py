@@ -212,5 +212,5 @@ class ArterySynchronization(object):
             self.s.shutdown(socket.SHUT_RDWR)
             self.s.close()
         except OSError as e :
-            print(" trying to close already closed socket")
+            print("trying to close already closed socket")
             

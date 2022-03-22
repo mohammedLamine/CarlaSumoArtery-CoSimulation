@@ -67,7 +67,7 @@ void Core::handleMessage(cMessage* msg)
         }
     } else if (msg == m_connectEvent) {
         m_traci->connect(m_launcher->launch());
-	    m_traci->setOrder(2);
+	    // m_traci->setOrder(1);
         checkVersion();
         syncTime();
         emit(initSignal, simTime());
