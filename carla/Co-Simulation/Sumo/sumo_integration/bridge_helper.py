@@ -218,7 +218,6 @@ class BridgeHelper(object):
                 '[BridgeHelper] Blueprint %s not supported. No vehicle will be spawned in sumo',
                 type_id)
             return None
-
         if type_id in traci.vehicletype.getIDList():
             logging.debug('[BridgeHelper] blueprint %s found in sumo vtypes', type_id)
             return type_id

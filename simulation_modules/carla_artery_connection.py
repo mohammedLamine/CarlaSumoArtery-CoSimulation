@@ -5,11 +5,16 @@ Script to integrate recieve artery messages in python for each simulation step
 # -- imports ---------------------------------------------------------------------------------------
 # ==================================================================================================
 
+from ast import Try
 import numpy as np
 import errno, time
 import socket
 import select
 import carla
+import traci
+import logging
+import traceback
+
 from sumo_integration.bridge_helper import BridgeHelper  # pylint: disable=wrong-import-position
 
 HOST = '127.0.0.1'  
@@ -29,12 +34,16 @@ class ArterySynchronization(object):
 
     def checkAndConnectclient(self):
         if not self.is_connected():
-            readable, _, _ = select.select([self.s], [], [],0.01)
-            if readable:
-                print("connecting artery client")
-                self.conn, _ = self.s.accept() 
-                self.conn.setblocking(0)
-
+            try :
+                readable, _, _ = select.select([self.s], [], [],0.01)
+                if readable:
+                    print("connecting artery client")
+                    self.conn, _ = self.s.accept() 
+                    self.conn.setblocking(0)
+            except Exception as e:
+                print("Socket check problem")
+                logging.error(traceback.format_exc())    
+                
     def is_connected(self):
         return not (self.conn is None)
         
@@ -131,7 +140,14 @@ class ArterySynchronization(object):
         full_cam.pop('ITS PDU Header')
 
         # adding transformations
-        self.getCarlaLocation(  synchronization,full_cam)
+        self.getCarlaLocation(synchronization,full_cam)
+        if not full_cam['receiver_artery_id'] in synchronization.arteryAttackers_ids:
+            if full_cam['receiver_sumo_id'].startswith('carla'):
+                synchronization.arteryAttackers_ids.add(full_cam['receiver_artery_id'] )
+
+        if not full_cam['receiver_artery_id'] in synchronization.artery2sumo_ids:
+            synchronization.artery2sumo_ids[full_cam['receiver_artery_id']] = full_cam['receiver_sumo_id']
+
         return full_cam
 
     def get_ongoing_recv( self ):
@@ -184,6 +200,7 @@ class ArterySynchronization(object):
                         self.set_ongoing_recv(b'', int(data.decode('utf-8')))
                 if e.errno != errno.EWOULDBLOCK: 
                     print("e.errno != errno.EWOULDBLOCK",e)
+                    logging.error(traceback.format_exc())
                     print(data)
                 break
             full_cam = self.camToDict(synchronization,data.decode('utf-8'))
@@ -191,5 +208,9 @@ class ArterySynchronization(object):
         return current_step_cams
 
     def shutdownAndClose(self):
-        self.s.shutdown(socket.SHUT_RDWR)
-        self.s.close()
+        try :
+            self.s.shutdown(socket.SHUT_RDWR)
+            self.s.close()
+        except OSError as e :
+            print(" trying to close already closed socket")
+            

@@ -16,6 +16,8 @@ import enum
 import logging
 import os
 
+import time
+
 import carla  # pylint: disable=import-error
 import sumolib  # pylint: disable=import-error
 import traci  # pylint: disable=import-error
@@ -318,14 +320,16 @@ class SumoSimulation(object):
             logging.info('Starting new sumo server...')
             if sumo_gui is True:
                 logging.info('Remember to press the play button to start the simulation')
-
             traci.start([sumo_binary,
                 '--configuration-file', cfg_file,
                 '--step-length', str(step_length),
-                '--lateral-resolution', '0.25',
+                '--lateral-resolution', '1',
                 '--collision.check-junctions',
-                '--num-clients',str(num_clients)
-            ], port=8813)
+                '--ignore-route-errors',
+                '--collision.action','none',
+                '--num-clients',str(num_clients),
+                '--log','./sumo_error/error_'+str(int(time.time()))+'.log'
+            ], port=8813,label='default'+str(int(time.time())))
         else:
             logging.info('Connection to sumo server. Host: %s Port: %s', host, port)
             traci.init(host=host, port=port)
@@ -394,8 +398,8 @@ class SumoSimulation(object):
         """
         Accessor for sumo actor.
         """
+        
         results = traci.vehicle.getSubscriptionResults(actor_id)
-
         type_id = results[traci.constants.VAR_TYPE]
         vclass = SumoActorClass(results[traci.constants.VAR_VEHICLECLASS])
         color = results[traci.constants.VAR_COLOR]
@@ -455,8 +459,13 @@ class SumoSimulation(object):
         """
         Destroys the given actor.
         """
-        if actor_id in traci.vehicle.getIDList():
-            traci.vehicle.remove(actor_id)
+        try:
+            if actor_id in traci.vehicle.getIDList():
+                traci.vehicle.unsubscribe(actor_id)
+                traci.vehicle.remove(actor_id)
+        except traci.TraCIException:
+            print('destroy actor failed')
+            pass
 
     def get_traffic_light_state(self, landmark_id):
         """
@@ -484,7 +493,7 @@ class SumoSimulation(object):
         loc_x, loc_y = transform.location.x, transform.location.y
         yaw = transform.rotation.yaw
 
-        traci.vehicle.moveToXY(vehicle_id, "", 0, loc_x, loc_y, angle=yaw, keepRoute=2)
+        traci.vehicle.moveToXY(vehicle_id, "", 0, loc_x, loc_y, angle=yaw, keepRoute=4,matchThreshold=10000)
         if signals is not None:
             traci.vehicle.setSignals(vehicle_id, signals)
         return True

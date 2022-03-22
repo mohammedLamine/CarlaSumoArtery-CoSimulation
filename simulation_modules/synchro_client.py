@@ -15,20 +15,20 @@ Script to integrate CARLA and SUMO simulations
 import argparse
 import logging
 import time
-import carla
 import pandas as pd
 import numpy as np
-import errno
 import subprocess, signal
-
+import psutil
 # ==================================================================================================
 # -- find carla module -----------------------------------------------------------------------------
 # ==================================================================================================
 
 import glob
 import os
+
 import sys
 from numpy import  random, sqrt
+
 
 try:
     sys.path.append(
@@ -51,7 +51,6 @@ else:
 # -- sumo integration imports ----------------------------------------------------------------------
 # ==================================================================================================
 import sumolib
-net = sumolib.net.readNet('./carla/Co-Simulation/Sumo/examples/net/Town04.net.xml')
 
 sys.path.append("./carla/Co-Simulation/Sumo")
 
@@ -59,15 +58,19 @@ from sumo_integration.bridge_helper import BridgeHelper  # pylint: disable=wrong
 from sumo_integration.carla_simulation import CarlaSimulation  # pylint: disable=wrong-import-position
 from sumo_integration.constants import INVALID_ACTOR_ID  # pylint: disable=wrong-import-position
 from sumo_integration.sumo_simulation import SumoSimulation  # pylint: disable=wrong-import-position
+
 import run_synchronization
 from run_synchronization import SimulationSynchronization  
 
 sys.path.append('../CarlaSumoArtery-CoSimulation')
+from carla_artery_connection import ArterySynchronization
+from attacker_module import GhostAheadAttacker
+from attacker_module import RandomOnRoadPositionAttacker
+from attacker_module import RandomOffsetPositionAttacker
+from attacker_module import ConstantOffsetPositionAttacker
 
-from simulation_modules.carla_artery_connection import ArterySynchronization
-from simulation_modules.attacker_module import GhostAheadAttacker
-from simulation_modules.painting_module import Painter
-from simulation_modules.detection_module import SSC
+from painting_module import Painter
+from detection_module import SSC,RLDetector
 from subprocess import Popen
 
 # ==================================================================================================
@@ -75,11 +78,12 @@ from subprocess import Popen
 # ==================================================================================================
 
 class Simulation():
-    def __init__(self,args):
+    def __init__(self,args,rl_model=None):
         print("Creating a new simulation ")
         self.args=args
         self.cams=[]
-        self.artery= self.run_artery()
+        if self.args.start_artery :
+            self.artery= self.run_artery(args.artery_build_path)
         self.sumo_simulation = SumoSimulation(args.sumo_cfg_file,args.step_length , args.sumo_host,
                                         args.sumo_port, args.sumo_gui, args.client_order,args.num_clients)
         self.carla_simulation = CarlaSimulation(args.carla_host, args.carla_port, args.step_length)
@@ -87,7 +91,8 @@ class Simulation():
         self.synchronization = SimulationSynchronization(self.sumo_simulation, self.carla_simulation, args.tls_manager,
                                                     args.sync_vehicle_color, args.sync_vehicle_lights)
         self.synchronization.artery2sumo_ids={}
-        self.synchronization.net = sumolib.net.readNet(args.sumo_net_file)
+        self.synchronization.arteryAttackers_ids=set({})
+        self.synchronization.net = self.sumo_simulation.net
         self.world = self.carla_simulation.world
 
         self.blueprint_library = self.world.get_blueprint_library()
@@ -96,26 +101,45 @@ class Simulation():
 
         self.victimes=[]
         self.attackers=[ GhostAheadAttacker('56'),
-                    GhostAheadAttacker('21'),
+                    ConstantOffsetPositionAttacker('21'),
                     GhostAheadAttacker('1')]
+
+        self.attackers=[np.random.choice([GhostAheadAttacker,RandomOnRoadPositionAttacker])(str(i)) for i in np.random.randint(1,100,size = 30)]
         self.artery_conn = ArterySynchronization()
         self.carla_painter = Painter(freq=self.carla_simulation.step_length*5)
-        self.global_detector = SSC(self.synchronization.net,200)   
 
-    def run_artery(self):
-        p = Popen(['sleep 2 ;'+os.path.expanduser('~')+'/artery/build/run_artery.sh sumo-omnetpp-med.ini'], cwd='./carla/Co-Simulation/arterysim/', shell=True)
+        if rl_model :
+            self.global_detector = RLDetector(rl_model)   
+        else :
+            self.global_detector = SSC(self.synchronization.net,200)   
+
+        self.focus_vehicle_id = str(np.random.randint(4,30))
+    
+    def run_artery(self,path):
+        if path !="":
+            if not os.path.isfile(path+'/run_artery.sh'):
+                raise FileNotFoundError("couldn't find artery build in path: '"+path+"'. Please provide valid artery build path")
+            p = Popen(['sleep 2 ;'+path+'/run_artery.sh sumo-omnetpp-med.ini'], cwd='./carla/Co-Simulation/arterysim/', shell=True)
+        else:
+            p = Popen(['sleep 2 ;'+os.path.expanduser('~')+'/artery/build/run_artery.sh sumo-omnetpp-med.ini'], cwd='./carla/Co-Simulation/arterysim/', shell=True)
         return p
         
-    def kill_artery(self):
+    def kill_artery(self,and_sumo=False):
         p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
         out, err = p.communicate()
         for line in out.splitlines():
             # print(line)
-
             if b'opp_run_release' in line or b'artery' in line or b'omnetpp' in line:
                 print(line)
                 pid = int(line.split(None, 1)[0])
                 os.kill(pid, signal.SIGKILL)
+            if and_sumo and b'sumo' in line :
+                print(line)
+                pid = int(line.split(None, 1)[0])
+                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, signal.SIGTERM)          
+                parent = psutil.Process(pid)
+                parent.kill()
 
     def step(self):
         start = time.time()
@@ -132,20 +156,22 @@ class Simulation():
 
         # apply all detection mechanisms
         detections = set([])
+        focused_vehicle_cams=[]
         if  self.artery_conn.is_connected() :
             current_step_cams=self.artery_conn.recieve_cam_messages(self.synchronization)
-            detections = self.global_detector.check(self.synchronization.artery2sumo_ids,current_step_cams)
-            self.cams.extend(current_step_cams)
-            # [carla_painter.color_communication(synchronization,cam) for cam in current_step_cams]
-
+            focused_vehicle_cams = [cam for cam in current_step_cams if cam["receiver_sumo_id"]==self.focus_vehicle_id ]
+            detections = self.global_detector.check(self.synchronization.artery2sumo_ids,focused_vehicle_cams,self.synchronization.arteryAttackers_ids)
+            self.cams.extend(focused_vehicle_cams)
+            if self.args.color_cams:
+                [self.carla_painter.color_communication(self.synchronization,cam) for cam in current_step_cams]
         # color agents accordingly
-        self.carla_painter.color_agents(self.synchronization,self.victimes,self.attackers,detections)
-
+        if self.args.color_agents:
+            self.carla_painter.color_agents(self.synchronization,self.victimes,self.attackers,detections)
         end = time.time()
         elapsed = end - start
         if elapsed < self.args.step_length:
             time.sleep(self.args.step_length - elapsed)
-        return current_step_cams
+        return focused_vehicle_cams
     def loop(self):
         try:
             while True:
@@ -155,18 +181,30 @@ class Simulation():
         finally:
             self.close()
 
-    def close(self):
+    def close(self, on_error = False):
         print('Cleaning synchronization')
         logging.info('Cleaning synchronization')
-        pd.DataFrame(self.cams).to_csv('cams.csv') 
+        cams_df = pd.DataFrame(self.cams)
+        if len(cams_df)>0:
+             cams_df.assign(label = cams_df['Station ID'].isin(self.synchronization.arteryAttackers_ids)).to_pickle('data/cams'+ str(time.time())+'.pckl') 
+        self.cams=[]
         print('******************************* closing artery connection ********************************************')
         self.artery_conn.shutdownAndClose()
         print('******************************* closing artery process ********************************************')
-        self.kill_artery()
-        self.artery.terminate()
-        self.artery.kill()
+
+        if on_error:
+            self.kill_artery(True)
+        else:
+            self.kill_artery()
+
+        if  self.args.start_artery :
+            self.artery.terminate()
+            self.artery.kill()
         print('******************************* closing synchronization ********************************************')
-        self.synchronization.close()
+        if not on_error:
+            self.synchronization.close()
+        else :
+            print ("traci._connections")
         print('******************************* closing all actors ********************************************')
         for actor in self.synchronization.carla.world.get_actors().filter('vehicle.*.*'):
             actor.destroy()
@@ -175,12 +213,11 @@ class Simulation():
         settings.synchronous_mode = False
         settings.fixed_delta_seconds = None     
         self.synchronization.carla.world.apply_settings(settings)
-
+        time.sleep(5)
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument('--sumo_cfg_file', type=str, help='sumo configuration file',default="./carla/Co-Simulation/Sumo/examples/Town04.sumocfg")
-    argparser.add_argument('--sumo_net_file', type=str, help='sumo network file',default="./carla/Co-Simulation/Sumo/examples/net/Town04.net.xml")
 
     argparser.add_argument('--carla-host',
                            metavar='H',
@@ -228,6 +265,11 @@ if __name__ == '__main__':
                            choices=['none', 'sumo', 'carla'],
                            help="select traffic light manager (default: none)",
                            default='carla')
+    argparser.add_argument('--start-artery', action='store_true', help='start artery (experimental feature)')
+    argparser.add_argument('--artery-build-path', type=str, help='artery build path',default="")
+
+    argparser.add_argument('--color-cams', action='store_true', help='color cam communications with red links')
+    argparser.add_argument('--color-agents', action='store_true', help='color different agents')
     argparser.add_argument('--debug', action='store_true', help='enable debug messages')
     arguments = argparser.parse_args()
 

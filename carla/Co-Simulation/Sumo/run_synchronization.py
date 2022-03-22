@@ -100,8 +100,11 @@ class SimulationSynchronization(object):
         """
         Tick to simulation synchronization
         """
-
+        # -----------------
+        # sumo-->carla sync
+        # -----------------
         
+
         self.sumo.tick()
 
         # Spawning new sumo actors in carla (i.e, not controlled by carla).
@@ -120,11 +123,15 @@ class SimulationSynchronization(object):
                     self.sumo2carla_ids[sumo_actor_id] = carla_actor_id
             else:
                 self.sumo.unsubscribe(sumo_actor_id)
-
+                print("ubsubscribing  actor ",sumo_actor_id )
         # Destroying sumo arrived actors in carla.
         for sumo_actor_id in self.sumo.destroyed_actors:
             if sumo_actor_id in self.sumo2carla_ids:
                 self.carla.destroy_actor(self.sumo2carla_ids.pop(sumo_actor_id))
+            if sumo_actor_id in self.carla2sumo_ids.values():
+                idx =list(self.carla2sumo_ids.keys())[list(self.carla2sumo_ids.values()).index(sumo_actor_id)]
+                self.carla.destroy_actor(idx)
+                self.carla2sumo_ids.pop(idx)
 
         # Updating sumo actors in carla.
         for sumo_actor_id in self.sumo2carla_ids:
@@ -165,7 +172,9 @@ class SimulationSynchronization(object):
             type_id = BridgeHelper.get_sumo_vtype(carla_actor)
             color = carla_actor.attributes.get('color', None) if self.sync_vehicle_color else None
             if type_id is not None:
+                
                 sumo_actor_id = self.sumo.spawn_actor(type_id, color)
+                # sumo_actor_id = self.sumo.spawn_actor("ignoring", color)
                 if sumo_actor_id != INVALID_ACTOR_ID:
                     self.carla2sumo_ids[carla_actor_id] = sumo_actor_id
                     self.sumo.subscribe(sumo_actor_id)
@@ -206,10 +215,6 @@ class SimulationSynchronization(object):
                 # Updates all the sumo links related to this landmark.
                 self.sumo.synchronize_traffic_light(landmark_id, sumo_tl_state)
 
-
-        # -----------------
-        # sumo-->carla sync
-        # -----------------
     def close(self):
         """
         Cleans synchronization.
@@ -221,11 +226,11 @@ class SimulationSynchronization(object):
         self.carla.world.apply_settings(settings)
 
         # Destroying synchronized actors.
+        for sumo_actor_id in self.carla2sumo_ids.values():
+            self.sumo.destroy_actor(sumo_actor_id)
         for carla_actor_id in self.sumo2carla_ids.values():
             self.carla.destroy_actor(carla_actor_id)
 
-        for sumo_actor_id in self.carla2sumo_ids.values():
-            self.sumo.destroy_actor(sumo_actor_id)
 
         # Closing sumo and carla client.
         self.carla.close()
