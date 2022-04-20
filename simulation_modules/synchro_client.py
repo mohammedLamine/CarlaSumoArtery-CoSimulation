@@ -63,6 +63,8 @@ import run_synchronization
 from run_synchronization import SimulationSynchronization  
 
 sys.path.append('../CarlaSumoArtery-CoSimulation')
+sys.path.append('../CarlaSumoArtery-CoSimulation/simulation_modules')
+
 from carla_artery_connection import ArterySynchronization
 from attacker_module import GhostAheadAttacker
 from attacker_module import RandomOnRoadPositionAttacker
