@@ -1,17 +1,22 @@
 # CarlaSumoArtery-CoSimulation
 
-## Download Requirements
+## Requirements
+### Environment
+- Desktop computer with a monitor (not tested on cloud or remote desktop)
+- Linux: Ubuntu 18.04 or 20.04
+### Simulators to Download
 - CARLA v.0.9.[11-13]
 - Artery
-- Sumo
-- Desktop computer with a Monitor and installed Linux
+- Sumo 1.8.0
+- Omnetpp 5.6.2
 
 ## Installation
 ### Pre-requisites
+- Dependecies: ```pip3 install psutil pyproj``` 
 - Set Omnetpp
-  - Run: ```./configure WITH_TKENV=no WITH_QTENV=no```; 
-  - ```./make cleanall```; 
-  - ```make MODE=release```;
+  - ```./configure WITH_TKENV=no WITH_QTENV=no```
+  - ```make cleanall```
+  - ```make MODE=release```
 - Ensure CARLA and Artery and Sumo are installed and working
 
 
